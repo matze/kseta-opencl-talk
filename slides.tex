@@ -1,0 +1,571 @@
+% rubber: set program xelatex
+\documentclass[18pt]{beamer}
+
+%{{{ Settings
+\usetheme[english, titlepage0, KITtoc, compacttoc]{KIT}
+
+%{{{ Packages
+\usepackage{tikz}
+\usepackage{xltxtra}
+\usepackage{listings}
+\usepackage{csquotes}
+\usepackage{pifont}
+\usepackage{booktabs}
+\usepackage{threeparttable}
+\usepackage[framemethod=tikz]{mdframed}
+\usepackage{hyperref}
+\usepackage{xspace}
+%}}}
+%{{{ Fonts and colors
+\setsansfont[Mapping=tex-text,
+             BoldFont={* Semibold}]{Source Sans Pro}
+\setmonofont[UprightFeatures={LetterSpace=-0.5}]{Inconsolata}
+
+% TomorrowTheme: https://github.com/chriskempson/tomorrow-theme/blob/master/vim/colors/Tomorrow.vim
+\definecolor{syntax-comment}{HTML}{8e908c}
+\definecolor{syntax-keyword}{HTML}{8959a8}
+\definecolor{syntax-number}{HTML}{eab700}
+\definecolor{syntax-green}{HTML}{718c00}
+\definecolor{syntax-red}{HTML}{c82829}
+
+\setbeamercolor{section in toc}{fg=black!80}
+%}}}
+%{{{ TikZ
+\tikzset{
+  every node/.style={anchor=base},
+  work group/.style={fill=syntax-keyword!50},
+  work item/.style={fill=syntax-number},
+}
+%}}}
+%{{{ Lstlisting
+\lstset{
+  language=C,
+  basicstyle=\small\ttfamily,
+  morekeywords={NULL, global, local, get\_global\_id},
+  keywordstyle=\bfseries\color{syntax-keyword},
+  numberstyle=\color{syntax-number},
+  stringstyle=\color{syntax-green},
+  commentstyle=\color{syntax-comment},
+  showstringspaces=false,
+}
+%}}}
+%{{{ Commands
+\newcommand{\cmark}{\textcolor{syntax-green}{\ding{51}}}%
+\newcommand{\xmark}{\textcolor{syntax-red}{\ding{55}}}%
+\newcommand{\icon}[1]{\includegraphics[width=1em]{images/#1}\xspace}
+%}}}
+%{{{ Environments
+\makeatletter
+\newenvironment{code}[1][\linewidth]
+  {\begin{mdframed}[
+  skipabove=\topsep,
+  skipbelow=\topsep,
+  linecolor=black!9,
+  backgroundcolor=black!9,
+  innertopmargin=0ex,
+  innerbottommargin=-.5ex,
+  innerleftmargin=6pt,
+  innerrightmargin=6pt,
+  userdefinedwidth=#1]}
+  {\end{mdframed}}
+\makeatother
+%}}}
+%{{{ Meta
+\title{GPGPU Computing with OpenCL}
+\author{M. Vogelgesang}
+\subtitle{Matthias Vogelgesang (IPE), Daniel Hilk (IEKP)}
+\institute{Institute for Data Processing and Electronics,
+Institut für Experimentelle Kernphysik}
+\date{Oct.~18\textsuperscript{th} 2013}
+
+\graphicspath{{../../common/}}
+
+% \TitleImage[width=3cm]{images/OpenCL_Logo_RGB_30mm}
+%}}}
+
+%}}}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+\begin{frame}{Motivation}
+  \begin{itemize}
+    \item More data is generated, more data has to be processed and analyzed
+    \item Despite Moore's law, CPUs hit a performance wall
+    \item GPU architectures \emph{can} give a higher throughput and better performance
+  \end{itemize}
+\end{frame}
+
+
+\section{Hardware background}
+
+\begin{frame}{GPU advantages}
+  \begin{block}{Why are GPUs good at what they do?}
+    \begin{itemize}
+      \item GPUs are heavily optimized towards pixelation of 3D data
+      \item GPUs have flexible, programmable pipelines
+      \item Architecture consists of many but rather simple compute cores
+      \item Instruction set is tailored towards math and image operations
+    \end{itemize}
+  \end{block}
+
+  \begin{block}{Some numbers of NVIDIAs GTX Titan flagship}
+    \begin{itemize}
+      \item 6 GB at 288.4 GB/s
+      \item 4500 (SP) / 1500 (DP) GFLOPs (equivalent of supercomputer in 2000)
+      \item 250 W power consumption
+    \end{itemize}
+  \end{block}
+\end{frame}
+\begin{frame}{Limitations}
+  \begin{block}{There are no silver bullets}
+    \begin{itemize}
+      \item Optimal performance with regular, parallel tasks
+      \item High operations-per-memory-access ratios\footnote{4500 GFLOPS / 288.4 GB/s
+          = 16 FLOP/B}
+        \item Bus can become a bottleneck\footnote{4500 GFLOPS / 16 GB/s
+            (PCIe 3.0 x16) = 280 FLOP/B}
+      \item Limited main memory, thus partitioning might be necessary
+    \end{itemize}
+  \end{block}
+
+  \begin{block}{Think about your algorithm first}
+    \begin{itemize}
+      \item Cliché quote: \enquote{premature optimization is the root of all
+          evil}
+      \item $O(c^n)$ is slow, no matter where you run it
+    \end{itemize}
+  \end{block}
+\end{frame}
+
+
+\section{OpenCL}
+
+\begin{frame}{History and Background}
+  \begin{block}{Development of GPGPU abstractions}
+    \begin{itemize}
+      \item Early research prototypes (e.g. Brook) used OpenGL shaders
+      \item NVIDIA presented CUDA in 2007
+      \item OpenCL initiated by Apple first released in 2008/09
+      \item High-level pragmas in OpenACC à la OpenMP since 2012
+    \end{itemize}
+  \end{block}
+
+  \begin{columns}[onlytextwidth]
+    \column{0.65\textwidth}
+      \begin{block}{Why OpenCL?}
+        \begin{itemize}
+          \item Open, vendor-neutral standard
+          \item Cross-platform support (Linux, Windows, Mac)
+          \item Multiple hardware platforms (CPUs, GPUs, FPGAs)
+        \end{itemize}
+      \end{block}
+
+    \column{0.35\textwidth}
+      \centering
+      \includegraphics[width=1.5cm]{images/OpenCL_Logo_RGB_30mm}
+  \end{columns}
+\end{frame}
+
+\subsection{Concepts}
+
+\begin{frame}{}
+  \begin{center}
+    \huge\bfseries
+    \textcolor{KITblack50}{OpenCL concepts}
+  \end{center}
+\end{frame}
+\begin{frame}{Programming model}
+  \begin{block}{Platform}
+    \begin{itemize}
+      \item A host controls $\geq 1$ \emph{platforms} (e.g. vendor SDKs)
+      \item A platform consists of $\geq 1$ \emph{devices}
+      \item The host manages resources and schedules execution
+      \item The devices execute code assigned to them by the host
+    \end{itemize}
+  \end{block}
+
+  \pause
+
+  \begin{block}{Devices}
+    \begin{itemize}
+      \item A device has $\geq 1$ \emph{compute units}
+      \item Each CU has $\geq 1$ \emph{processing elements}
+      \item How CUs and PEs are mapped to hardware is \emph{not} specified
+    \end{itemize}
+  \end{block}
+\end{frame}
+\begin{frame}{Execution model}
+  \begin{itemize}
+    \item Work is arranged as \tikz[baseline]{\node[inner sep=2pt, work
+        item]
+      (s-work-item) {work items};} on a 1D, 2D or 3D grid
+    \item
+      \visible<2->{
+        Grid is split into \tikz[baseline]{\node[inner sep=1pt, work group]
+        (s-work-group) {work groups};}
+      }
+    \item \visible<3->{Work groups are scheduled on one or more CUs}
+    \item \visible<4->{Work items are executed on PEs}
+  \end{itemize}
+  \begin{center}
+    \begin{tikzpicture}
+      \visible<2->{
+        \draw[work group] (1, 1) rectangle (2, 2);
+        \draw[step=1cm, line width=.666pt] (0, 0) grid (4, 2);
+      }
+
+      \draw[work item] (1.25,1.25) rectangle (1.5, 1.5);
+      \draw[step=0.25cm] (0, 0) grid (4, 2);
+    \end{tikzpicture}
+  \end{center}
+\end{frame}
+\begin{frame}[fragile]{Kernel}
+  \begin{itemize}
+    \item A kernel is a piece of code executed by \emph{each} work item
+    \item In most cases it corresponds to the innermost body of a for loop, e.g.
+      from
+      \begin{lstlisting}
+for (int i = 1; i < N-1; i++)
+    x[i] = sin(y[i]) + 0.5 * (x[i-1] + x[i+1]);
+      \end{lstlisting}
+      you would extract the kernel
+      \begin{lstlisting}
+x[i] = sin(y[i]) + 0.5 * (x[i-1] + x[i+1]);
+      \end{lstlisting}
+    \item A kernel has implicit parameters to identify itself
+      \begin{itemize}
+        \item Location relative to the work group
+        \item Location relative to the global grid
+        \item Number of work groups/items
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+\begin{frame}{Memory model}
+  \begin{block}{Memory, buffers and images}
+    \begin{itemize}
+      \item Host \emph{cannot} access device memory directly and vice versa
+      \item Buffers to transfer data between host and device memory
+      \item Images are structured buffers
+    \end{itemize}
+  \end{block}
+
+  \begin{columns}[onlytextwidth]
+    \column{0.6\textwidth}
+      \begin{block}{Device memory}
+        \begin{description}
+          \visible<2->{\item[\textcolor{syntax-green}{Global}] host-accessible,
+            read/write-able by \emph{all} work items}
+          \visible<3->{\item[\textcolor{syntax-green}{Constant}]
+            host-accessible, read-only by \emph{all} work items}
+          \visible<4->{\item[\textcolor{syntax-keyword}{Local}] local to a work
+            group}
+          \visible<5->{\item[\textcolor{syntax-number}{Privat}] local to a work
+            item}
+        \end{description}
+      \end{block}
+
+    \column{0.4\textwidth}
+      \centering
+      \begin{tikzpicture}
+        \visible<2->{
+          \draw[fill=syntax-green!50] (0, 0) rectangle (3, 2);
+
+        }
+
+        \visible<4->{
+          \draw[work group] (1, 1) rectangle (2, 2);
+        }
+
+        \visible<5->{
+          \draw[work item] (1.25,1.25) rectangle (1.5, 1.5);
+        }
+
+        % Grid on top
+        \visible<2->{
+          \draw[step=1cm, line width=.666pt] (0, 0) grid (3, 2);
+          \draw[step=0.25cm] (0, 0) grid (3, 2);
+        }
+
+    \end{tikzpicture}
+  \end{columns}
+\end{frame}
+
+
+\subsection{Application programming interface}
+
+\begin{frame}{}
+  \begin{center}
+    \huge\bfseries
+    \textcolor{KITblack50}{OpenCL API}
+  \end{center}
+\end{frame}
+\begin{frame}{Implementations}
+  \begin{center}
+    \begin{threeparttable}
+      \begin{tabular}{llcccl}
+        \toprule
+        Vendor & Rev. & GPU & CPU & FPGA & OS\\
+        \midrule
+        NVIDIA  & 1.1 & \cmark & \xmark & \xmark & \icon{linux} \icon{windows} \icon{apple}\\
+        AMD     & 1.2 & \cmark & \cmark & \xmark & \icon{linux} \icon{windows} \icon{apple}\\
+        Intel   & 1.2 & \cmark & \cmark & \xmark & \icon{linux} \icon{windows}\\
+        Apple   & 1.1\tnote{1} & \cmark & \cmark & \xmark & \icon{apple}\\
+        Altera  & 1.0 & \xmark & \xmark & \cmark & \icon{linux} \icon{windows}\\
+        \bottomrule
+      \end{tabular}
+      \begin{tablenotes}
+        \scriptsize
+      \item[1] OpenCL 1.2 from OS X 10.9
+      \end{tablenotes}
+    \end{threeparttable}
+  \end{center}
+\end{frame}
+\begin{frame}[fragile]{Prerequisites}
+  \begin{itemize}
+    \item OpenCL is specified as a C API and a kernel language
+    \item Link against \texttt{-lOpenCL} --- generic driver loads implementation at
+      run-time
+    \item Header location depends on host platform \ldots
+
+      \begin{minipage}[htb]{\textwidth}
+        \begin{columns}[onlytextwidth]
+          \column{0.6\textwidth}
+            \begin{code}
+\begin{lstlisting}
+/* UNIX and Windows */
+#include <CL/cl.h>
+
+/* Apple */
+#include <OpenCL/cl.h>
+\end{lstlisting}
+          \end{code}
+
+          \column{0.4\textwidth}
+            \centering
+            \includegraphics[width=2cm]{images/facepalm}
+        \end{columns}
+      \end{minipage}
+
+  \end{itemize}
+\end{frame}
+\begin{frame}[fragile]{Kernel syntax}
+\begin{itemize}
+  \item Written in a C99 superset
+  \item Address space specifiers (\texttt{global} and \texttt{local})
+  \item Work item and math related builtins
+  \item Vector types (e.g. \texttt{int4}, \texttt{float3}, \ldots)
+\end{itemize}
+  \begin{code}
+\begin{lstlisting}
+kernel void
+scale_vector (global float *output,
+              global float *input,
+              float scale)
+{
+    int idx = get_global_id (0);    /* global location */
+    output[idx] = scale * input[idx];
+}
+\end{lstlisting}
+\end{code}
+\end{frame}
+\begin{frame}[fragile]{Querying all platforms}
+  \begin{code}
+\begin{lstlisting}
+cl_uint n_platforms;
+cl_platform_id *platforms = NULL;
+
+e = clGetPlatformIDs (0, NULL, &n_platforms);
+
+platforms = malloc (n_platforms * sizeof (cl_platform_id));
+
+e = clGetPlatformIDs (n_platforms, &platforms, NULL);
+\end{lstlisting}
+\end{code}
+\end{frame}
+\begin{frame}[fragile]{Querying devices of one platform}
+\begin{code}
+\begin{lstlisting}
+cl_uint n_devices;
+cl_device_id *devices = NULL;
+
+e = clGetDeviceIDs (platforms[0], CL_DEVICE_TYPE_ALL,
+                    0, NULL, &n_devices);
+
+devices = malloc (n_devices * sizeof (cl_device_id);
+
+e = clGetDeviceIDs (platforms[0], CL_DEVICE_TYPE_ALL,
+                    n_devices, &devices, NULL);
+
+/* If you don't use it anymore, decrement the reference */
+e = clReleaseDevice (device);
+\end{lstlisting}
+\end{code}
+\end{frame}
+\begin{frame}[fragile]{Device contexts}
+Resources are shared between devices in the same context, thus contexts model
+application specific behaviour:
+\begin{code}
+\begin{lstlisting}
+cl_context context;
+
+context = clCreateContext (NULL, n_devices, devices,
+                           NULL, NULL, &err);
+\end{lstlisting}
+\end{code}
+\end{frame}
+\begin{frame}[fragile]{Buffer objects}
+Buffers are created in a context. At run-time, the OpenCL environment decides
+when memory is transfered to a specific device.
+\begin{code}
+\begin{lstlisting}
+size_t size;
+cl_mem dev_input;
+cl_mem dev_result;
+
+size = 1024 * 1024 * sizeof (float);
+dev_input = clCreateBuffer (context, CL_MEM_READ_ONLY,
+                            size, NULL, &err);
+dev_result = clCreateBuffer (context, CL_MEM_WRITE_ONLY,
+                             size, NULL, &err);
+\end{lstlisting}
+\end{code}
+\end{frame}
+\begin{frame}[fragile]{Command queues}
+Device commands (data transfer, kernel launches \ldots) are enqueued in one
+command queue per device:
+\begin{code}
+\begin{lstlisting}
+cl_command_queue queue;
+
+queue = clCreateCommandQueue (context, devices[0], 0, &err);
+\end{lstlisting}
+\end{code}
+The third parameter can be used to toggle out of order execution and profiling.
+\end{frame}
+\begin{frame}[fragile]{Transfering data}
+\begin{code}
+\begin{lstlisting}
+e = clEnqueueWriteBuffer (queue, dev_input,
+                          TRUE, /* blocking call? */
+                          0, size,
+                          host_input,
+                          0, NULL, NULL);
+\end{lstlisting}
+\end{code}
+
+\end{frame}
+\begin{frame}[fragile]{Building kernel code}
+Kernel code is compiled at run-time because the target hardware is not
+necessarily known at compile-time (\ldots and allows cool stunts like run-time code
+generation)
+\begin{code}
+\begin{lstlisting}
+cl_program program;
+cl_kernel kernel;
+
+/* Create and build program */
+program = clCreateProgramWithSource (context, 1, source,
+                                     NULL, &e);
+e = clBuildProgram (program, n_devices, devices,
+                    NULL, NULL, NULL);
+
+/* Extract kernel */
+kernel = clCreateKernel (program, "scale_vector", &e);
+\end{lstlisting}
+\end{code}
+\end{frame}
+\begin{frame}[fragile]{Launching kernels}
+\begin{code}
+\begin{lstlisting}
+size_t global_work_size[] = { 1024 };
+size_t global_work_offset[] = { 0 };
+cl_event event;
+
+e = clEnqueueNDRangeKernel (queue, kernel,
+                            1, /* grid dimensions */
+                            global_work_offset,
+                            global_work_size,
+                            0, NULL, &event);
+\end{lstlisting}
+\end{code}
+\end{frame}
+\begin{frame}[fragile]{Events}
+All commands accept and return \texttt{cl\_event} objects
+\begin{code}
+\begin{lstlisting}
+cl_int clEnqueueXXX (...,
+                     cl_uint wait_list_length,
+                     const cl_event *wait_list,
+                     cl_event *event);
+\end{lstlisting}
+\end{code}
+
+that can be used to
+\begin{code}
+\begin{lstlisting}
+/* Wait for one or more events */
+e = clWaitForEvents (1, &event);
+
+/* Query event information */
+e = clGetEventInfo (event, CL_EVENT_COMMAND_EXECUTION_STATUS,
+                    sizeof (cl_int), &result, NULL);
+\end{lstlisting}
+\end{code}
+\end{frame}
+\begin{frame}[fragile]{Kernel synchronization}
+Events are also used to ensure correct enqueuing order in out-of-order queues:
+\begin{code}
+\begin{lstlisting}
+clEnqueueNDRangeKernel (queue, kernel_foo,
+                        ...,
+                        NULL, NULL, &foo_event);
+
+clEnqueueNDRangeKernel (queue, kernel_bar,
+                        ...,
+                        1, &foo_event, &bar_event);
+
+clReleaseEvent (foo_event);
+clReleaseEvent (bar_event);
+\end{lstlisting}
+\end{code}
+\end{frame}
+\begin{frame}[fragile]{Work item synchronization}
+Guarantee that all work items are waiting at the same point before proceeding:
+\begin{code}
+\begin{lstlisting}
+barrier (mem_fence_flags);
+\end{lstlisting}
+\end{code}
+
+Make sure that all the other work items read the same values:
+\begin{code}
+\begin{lstlisting}
+mem_fence (mem_fence_flags);
+write_mem_fence (mem_fence_flags);
+read_mem_fence (mem_fence_flags);
+\end{lstlisting}
+\end{code}
+
+\texttt{mem\_fence\_flags} must be a combination of
+\begin{itemize}
+  \item \texttt{CLK\_LOCAL\_MEM\_FENCE}: for guarantees inside a work group
+  \item \texttt{CLK\_GLOBAL\_MEM\_FENCE}: across all work items
+\end{itemize}
+\end{frame}
+\begin{frame}[fragile]{Considerations}
+  \begin{itemize}
+    \item All resources are reference-counted $\rightarrow$ release them when
+      not used!
+    \item Every call returns an error code $\rightarrow$ check all of them!
+    \item Using \texttt{double} will decrease performance by factor two (if it
+      works at all)
+  \end{itemize}
+\end{frame}
+
+
+\end{document}
+
+% vim:sw=2
